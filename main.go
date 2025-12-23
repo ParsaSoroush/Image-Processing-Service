@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
 	"log"
 	"net/http"
 	"os"
@@ -29,8 +30,8 @@ type User struct {
 }
 
 type ImageAsset struct {
-	ID        uint      `gorm:"primaryKey"`
-	UserID    uint      `gorm:"index"`
+	ID        uint `gorm:"primaryKey"`
+	UserID    uint `gorm:"index"`
 	Filename  string
 	URL       string
 	Width     int
@@ -56,24 +57,24 @@ func generateTokenForUser(u *User, expiry time.Duration) (string, error) {
 
 func parseTokenString(tokenString string) (jwt.MapClaims, error) {
 	if tokenString == "" {
-		return nil, errors.New("no token provided")
+		return nil, errors.New("❌🔑 no token provided")
 	}
 	tokenString = strings.TrimPrefix(tokenString, "Bearer ")
 
 	token, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method")
+			return nil, fmt.Errorf("❌ unexpected signing method")
 		}
 		return JwtSecretKey, nil
 	})
 	if err != nil || !token.Valid {
-		return nil, errors.New("invalid token")
+		return nil, errors.New("❌🔑 invalid token")
 	}
 
 	claims := token.Claims.(jwt.MapClaims)
 	exp := int64(claims["exp"].(float64))
 	if time.Now().After(time.Unix(exp, 0)) {
-		return nil, errors.New("token expired")
+		return nil, errors.New("❌📆 token expired")
 	}
 
 	return claims, nil
@@ -103,7 +104,7 @@ func Register(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid input"})
+		c.JSON(http.StatusBadRequest, gin.H{"❌error❌": "invalid input"})
 		return
 	}
 
@@ -111,7 +112,7 @@ func Register(c *gin.Context) {
 	user := User{Username: req.Username, Password: string(hash)}
 
 	if err := db.Create(&user).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"❌error❌": err.Error()})
 		return
 	}
 
@@ -133,12 +134,12 @@ func Login(c *gin.Context) {
 
 	var user User
 	if err := db.Where("username = ?", req.Username).First(&user).Error; err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+		c.JSON(http.StatusUnauthorized, gin.H{"❌error❌": "invalid credentials"})
 		return
 	}
 
 	if bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)) != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+		c.JSON(http.StatusUnauthorized, gin.H{"❌error❌": "invalid credentials"})
 		return
 	}
 
@@ -151,20 +152,20 @@ func UploadImage(c *gin.Context) {
 
 	file, err := c.FormFile("image")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "image required"})
+		c.JSON(http.StatusBadRequest, gin.H{"❌error❌": "image required"})
 		return
 	}
 
 	src, err := file.Open()
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot open file"})
+		c.JSON(http.StatusBadRequest, gin.H{"❌error❌": "cannot open file"})
 		return
 	}
 	defer src.Close()
 
 	img, format, err := image.Decode(src)
 	if err != nil || (format != "jpeg" && format != "png") {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "only jpeg or png allowed"})
+		c.JSON(http.StatusBadRequest, gin.H{"❌error❌": "only jpeg or png allowed"})
 		return
 	}
 
@@ -177,7 +178,7 @@ func UploadImage(c *gin.Context) {
 
 	savePath := filepath.Join(uploadDir, filename)
 	if err := imaging.Save(img, savePath, imaging.JPEGQuality(85)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save image"})
+		c.JSON(http.StatusInternalServerError, gin.H{"❌error❌": "failed to save image"})
 		return
 	}
 
@@ -226,7 +227,7 @@ func GetImages(c *gin.Context) {
 		limit, offset,
 	).Rows()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch images"})
+		c.JSON(http.StatusInternalServerError, gin.H{"❌error❌": "failed to fetch images"})
 		return
 	}
 	defer rows.Close()
@@ -253,7 +254,7 @@ func GetImages(c *gin.Context) {
 			&height,
 			&createdAt,
 		); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read images"})
+			c.JSON(http.StatusInternalServerError, gin.H{"❌error❌": "failed to read images"})
 			return
 		}
 
@@ -275,37 +276,67 @@ func GetImages(c *gin.Context) {
 	})
 }
 
-func ResizeImage(c *gin.Context) {
+func TransformImage(c *gin.Context) {
 	userID, _ := userIDFromContext(c)
 
 	imageID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid image id"})
+		c.JSON(http.StatusBadRequest, gin.H{"❌error❌": "invalid image id"})
 		return
 	}
 
 	var asset ImageAsset
-	if err := db.Where("id = ? AND user_id = ?", imageID, userID).First(&asset).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "image not found"})
+	if err := db.Where("id = ? AND user_id = ?", imageID, userID).
+		First(&asset).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"❌error❌": "image not found"})
 		return
 	}
 
 	var req struct {
 		Transformations struct {
-			Resize struct {
+			Resize *struct {
 				Width  int `json:"width"`
 				Height int `json:"height"`
-			} `json:"resize"`
+			} `json:"resize,omitempty"`
+
+			Crop *struct {
+				Width  int `json:"width"`
+				Height int `json:"height"`
+			} `json:"crop,omitempty"`
+
+			Watermark *struct {
+				ImageID uint    `json:"image_id"`
+				X       int     `json:"x"`
+				Y       int     `json:"y"`
+				Width   int     `json:"width,omitempty"`
+				Height  int     `json:"height,omitempty"`
+				Opacity float64 `json:"opacity,omitempty"`
+			} `json:"watermark,omitempty"`
+
+			Rotate *float64 `json:"rotate,omitempty"`
+			Mirror *string  `json:"mirror,omitempty"`
+			Format *string  `json:"format,omitempty"`
+
+			Filters *struct {
+				Grayscale bool `json:"grayscale"`
+				Sepia     bool `json:"sepia"`
+			} `json:"filters,omitempty"`
 		} `json:"transformations"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		c.JSON(http.StatusBadRequest, gin.H{"❌error❌": "invalid request body"})
 		return
 	}
 
-	if req.Transformations.Resize.Width <= 0 || req.Transformations.Resize.Height <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "width and height must be positive"})
+	if req.Transformations.Resize == nil &&
+		req.Transformations.Rotate == nil &&
+		req.Transformations.Crop == nil &&
+		req.Transformations.Watermark == nil &&
+		req.Transformations.Mirror == nil &&
+		req.Transformations.Format == nil &&
+		req.Transformations.Filters == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"❌error❌": "no transformations provided"})
 		return
 	}
 
@@ -313,22 +344,139 @@ func ResizeImage(c *gin.Context) {
 
 	img, err := imaging.Open(srcPath)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to open image"})
+		c.JSON(http.StatusInternalServerError, gin.H{"❌error❌": "failed to open image"})
 		return
 	}
 
-	resized := imaging.Resize(
-		img,
-		req.Transformations.Resize.Width,
-		req.Transformations.Resize.Height,
-		imaging.Lanczos,
-	)
+	/* ---------------- Resize ---------------- */
+	if r := req.Transformations.Resize; r != nil {
+		if r.Width <= 0 || r.Height <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"❌error❌": "width and height must be positive"})
+			return
+		}
+		img = imaging.Resize(img, r.Width, r.Height, imaging.Lanczos)
+	}
 
-	newFilename := uuid.New().String() + ".jpg"
+	/* ---------------- Rotate ---------------- */
+	if deg := req.Transformations.Rotate; deg != nil {
+		if *deg == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"❌error❌": "rotate degrees must be non-zero"})
+			return
+		}
+		img = imaging.Rotate(img, *deg, image.Transparent)
+	}
+
+	/* ---------------- Crop ---------------- */
+	if crop := req.Transformations.Crop; crop != nil {
+		if crop.Width <= 0 || crop.Height <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"❌error❌": "crop width and height must be positive"})
+			return
+		}
+
+		b := img.Bounds()
+		if crop.Width > b.Dx() || crop.Height > b.Dy() {
+			c.JSON(http.StatusBadRequest, gin.H{"❌error❌": "crop size exceeds image dimensions"})
+			return
+		}
+
+		img = imaging.CropCenter(img, crop.Width, crop.Height)
+	}
+
+	/* ---------------- Mirror ---------------- */
+	if m := req.Transformations.Mirror; m != nil {
+		switch strings.ToLower(*m) {
+		case "horizontal":
+			img = imaging.FlipH(img)
+		case "vertical":
+			img = imaging.FlipV(img)
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{
+				"❌error❌": "mirror must be 'horizontal' or 'vertical'",
+			})
+			return
+		}
+	}
+
+	/* ---------------- Filters ---------------- */
+	if f := req.Transformations.Filters; f != nil {
+		if f.Grayscale {
+			img = imaging.Grayscale(img)
+		}
+
+		if f.Sepia {
+			img = imaging.AdjustFunc(img, func(c color.NRGBA) color.NRGBA {
+				r := float64(c.R)
+				g := float64(c.G)
+				b := float64(c.B)
+
+				tr := 0.393*r + 0.769*g + 0.189*b
+				tg := 0.349*r + 0.686*g + 0.168*b
+				tb := 0.272*r + 0.534*g + 0.131*b
+
+				c.R = uint8(min(tr, 255))
+				c.G = uint8(min(tg, 255))
+				c.B = uint8(min(tb, 255))
+
+				return c
+			})
+		}
+	}
+
+	/* ---------------- Watermark ---------------- */
+	if w := req.Transformations.Watermark; w != nil {
+		var wmAsset ImageAsset
+		if err := db.Where("id = ? AND user_id = ?", w.ImageID, userID).
+			First(&wmAsset).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"❌error❌": "watermark image not found"})
+			return
+		}
+
+		wmImg, err := imaging.Open(filepath.Join(uploadDir, wmAsset.Filename))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"❌error❌": "cannot open watermark"})
+			return
+		}
+
+		if w.Width > 0 && w.Height > 0 {
+			wmImg = imaging.Resize(wmImg, w.Width, w.Height, imaging.Lanczos)
+		}
+
+		opacity := 1.0
+		if w.Opacity > 0 && w.Opacity <= 1 {
+			opacity = w.Opacity
+		}
+
+		img = imaging.Overlay(img, wmImg, image.Pt(w.X, w.Y), opacity)
+	}
+
+	/* ---------------- Format ---------------- */
+	outputFormat := "jpeg"
+	if f := req.Transformations.Format; f != nil {
+		switch strings.ToLower(*f) {
+		case "jpeg", "jpg":
+			outputFormat = "jpeg"
+		case "png":
+			outputFormat = "png"
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{
+				"❌error❌": "format must be jpeg/jpg or png",
+			})
+			return
+		}
+	}
+
+	newFilename := uuid.New().String() + "." + outputFormat
 	newPath := filepath.Join(uploadDir, newFilename)
 
-	if err := imaging.Save(resized, newPath, imaging.JPEGQuality(85)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save image"})
+	switch outputFormat {
+	case "jpeg":
+		err = imaging.Save(img, newPath, imaging.JPEGQuality(85))
+	case "png":
+		err = imaging.Save(img, newPath)
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"❌error❌": "failed to save image"})
 		return
 	}
 
@@ -336,8 +484,8 @@ func ResizeImage(c *gin.Context) {
 		UserID:   userID,
 		Filename: newFilename,
 		URL:      "/uploads/" + newFilename,
-		Width:    resized.Bounds().Dx(),
-		Height:   resized.Bounds().Dy(),
+		Width:    img.Bounds().Dx(),
+		Height:   img.Bounds().Dy(),
 	}
 
 	db.Create(&record)
@@ -347,7 +495,52 @@ func ResizeImage(c *gin.Context) {
 		"url":    record.URL,
 		"width":  record.Width,
 		"height": record.Height,
+		"format": outputFormat,
 	})
+}
+
+func GetImageWithDetails(c *gin.Context) {
+	userID, _ := userIDFromContext(c)
+
+	imageID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"❌error❌": "invalid image id"})
+		return
+	}
+
+	var asset ImageAsset
+	if err := db.
+		Where("id = ? AND user_id = ?", imageID, userID).
+		First(&asset).Error; err != nil {
+
+		c.JSON(http.StatusNotFound, gin.H{"❌error❌": "image not found"})
+		return
+	}
+
+	imagePath := filepath.Join(uploadDir, asset.Filename)
+
+	if _, err := os.Stat(imagePath); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"❌error❌": "image file missing"})
+		return
+	}
+
+	ext := strings.ToLower(filepath.Ext(asset.Filename))
+	contentType := "image/jpeg"
+	if ext == ".png" {
+		contentType = "image/png"
+	}
+
+	c.Header("Content-Type", contentType)
+	c.Header("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, asset.Filename))
+	c.Header("Last-Modified", asset.CreatedAt.UTC().Format(http.TimeFormat))
+
+	c.Header("X-Image-ID", fmt.Sprint(asset.ID))
+	c.Header("X-User-ID", fmt.Sprint(asset.UserID))
+	c.Header("X-Image-Width", fmt.Sprint(asset.Width))
+	c.Header("X-Image-Height", fmt.Sprint(asset.Height))
+	c.Header("X-Image-URL", asset.URL)
+
+	c.File(imagePath)
 }
 
 
@@ -374,7 +567,8 @@ func main() {
 	auth.Use(AuthRequired())
 	auth.POST("/images", UploadImage)
 	auth.GET("/images", GetImages)
-	auth.POST("images/:id/transform", ResizeImage)
+	auth.POST("images/:id/transform", TransformImage)
+	auth.GET("/images/:id", GetImageWithDetails)
 
 	log.Println("✅Server running on :8080🚀")
 	r.Run(":8080")
