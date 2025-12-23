@@ -2,7 +2,7 @@
 ---
 A simple RESTful API that allows users to SignUp, SingIn, Add Images, manage them and Apply Transformations.
 
-🔗 [Project URL](https://roadmap.sh/projects/expense-tracker-api)
+🔗 [Project URL](https://roadmap.sh/projects/image-processing-service)
 
 ## 🛠️ Tech Stack
 - Go
